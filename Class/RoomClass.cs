@@ -43,7 +43,7 @@ namespace GeneratePlan.Class
 
         public Room Duplicate()
         {
-            Room newRoom = new Room(new List<Point3dId>(this.CornerPoints), this.Function, this.Id); //NOTES: czy to na pewno deep copy? -> chyba tak. działa
+            Room newRoom = new Room(new List<Point3dId>(this.CornerPoints), this.Function, this.Id);
             return newRoom;
         }
 

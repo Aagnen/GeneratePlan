@@ -83,7 +83,15 @@ namespace GeneratePlan.ClassGoo //NOTES: Klasa Goo = pozwalajaca GH na manipulow
 
         public override BoundingBox Boundingbox => throw new NotImplementedException(); //TODO2: boundingbox
 
-        public BoundingBox ClippingBox => throw new NotImplementedException(); //TODO2: clippingbox
+        public BoundingBox ClippingBox
+        {
+            get
+            {
+                Point3d minPoint = new Point3d(this.Value.Point.X - 0.001, this.Value.Point.Y - 0.001, this.Value.Point.Z - 0.001);
+                Point3d maxPoint = new Point3d(this.Value.Point.X + 0.001, this.Value.Point.Y + 0.001, this.Value.Point.Z + 0.001);
+                return new BoundingBox(minPoint, maxPoint);
+            }
+        }//TODO2: clippingbox
 
         public override BoundingBox GetBoundingBox(Transform xform) => throw new NotImplementedException(); //TODO2: boundingbox
 

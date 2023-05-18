@@ -25,6 +25,7 @@ namespace GeneratePlan.Ghc.GhcMovement
             pManager.AddParameter(new Point3dIdParam(), "LineEndpoints", "LE", "List of two Point3dIds that are the endpoints of the line that needs moving", GH_ParamAccess.list);
             pManager.AddNumberParameter("Maximal movement", "Max", "Maximal distance movement. Multiplication of step!", GH_ParamAccess.item);
             pManager.AddNumberParameter("Step", "St", "Movement step", GH_ParamAccess.item);
+            pManager.AddIntegerParameter("Snap probability", "Snap", "Snap probability if snap is possible. 1 = the same as normal move3=3 times mor probable", GH_ParamAccess.item);
         }
 
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
@@ -41,9 +42,10 @@ namespace GeneratePlan.Ghc.GhcMovement
             List<Point3dId> iLineEndpoints = new List<Point3dId>();
             double maxMovement = double.MaxValue;
             double step = double.MaxValue;
+            int snapProbability = 1;
 
             StringBuilder outMessage = new StringBuilder();
-            double tolerance = 0.001;
+            double tolerance = 0.00001;
 
             // List to store movement vectors
             List<Vector3d> possibleMovements = new List<Vector3d>();
@@ -53,6 +55,7 @@ namespace GeneratePlan.Ghc.GhcMovement
             if (!DA.GetDataList("Rooms", iRooms) || !DA.GetDataList("LineEndpoints", iLineEndpoints)) return;
             if (!DA.GetData("Maximal movement", ref maxMovement)) return;
             if (!DA.GetData("Step", ref step)) return;
+            DA.GetData("Snap probability", ref snapProbability);
 
             //------------------------------------------------------ common bugs --------------------------------------------------//
             if (iLineEndpoints.Count != 2)
@@ -64,6 +67,12 @@ namespace GeneratePlan.Ghc.GhcMovement
             if (step <= 0)
             {
                 AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Step has to be positive");
+                return;
+            }
+
+            if (snapProbability < 0)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Snap has to be a positive number");
                 return;
             }
 
@@ -116,7 +125,7 @@ namespace GeneratePlan.Ghc.GhcMovement
                 for (int i = -numberOfSteps; i <= numberOfSteps; i++)
                 {
                     double x = i * step;
-                    possibleMovements.Add(new Vector3d(x, 0, 0));
+                    if (x != 0) possibleMovements.Add(new Vector3d(x, 0, 0));
                 }
             }
             else if (Math.Abs(lineEndpoints[0].Point.Y - lineEndpoints[1].Point.Y) < 0.001)
@@ -138,7 +147,7 @@ namespace GeneratePlan.Ghc.GhcMovement
                 for (int i = -numberOfSteps; i <= numberOfSteps; i++)
                 {
                     double y = i * step;
-                    possibleMovements.Add(new Vector3d(0, y, 0));
+                    if(y!= 0) possibleMovements.Add(new Vector3d(0, y, 0));
                 }
 
             }
@@ -153,26 +162,30 @@ namespace GeneratePlan.Ghc.GhcMovement
             #region message
             outMessage.Append("\nThe number of direct collision distances: ");
             outMessage.Append(directCollisionDistances.Count);
+            outMessage.Append("\n   ");
             if (directCollisionDistances.Count > 0)
             {
-                outMessage.Append("\n   Max ");
-                outMessage.Append(directCollisionDistances.Max());
-                outMessage.Append("\n   Min ");
-                outMessage.Append(directCollisionDistances.Min());
+                if (directCollisionDistances.Count > 0)
+                {
+                    foreach (var collision in directCollisionDistances) { outMessage.Append(collision); outMessage.Append(" "); }
+                }
             }
 
             outMessage.Append("\nThe number of indirect collision distances: ");
             outMessage.Append(indirectCollistionDistances.Count);
+            outMessage.Append("\n   ");
             if (indirectCollistionDistances.Count > 0)
             {
-                outMessage.Append("\n   Max ");
-                outMessage.Append(indirectCollistionDistances.Max());
-                outMessage.Append("\n   Min ");
-                outMessage.Append(indirectCollistionDistances.Min());
+                foreach (var collision in indirectCollistionDistances) { outMessage.Append(collision); outMessage.Append(" "); }
             }
 
             outMessage.Append("\nThe number of snap distances: ");
             outMessage.Append(snapDistances.Count);
+            outMessage.Append("\n   ");
+            if (snapDistances.Count > 0)
+            {
+                foreach (var snap in snapDistances) { outMessage.Append(snap); outMessage.Append(" "); }
+            }
             #endregion message
 
             HashSet<double> collisionDistances = new HashSet<double>();
@@ -181,10 +194,17 @@ namespace GeneratePlan.Ghc.GhcMovement
 
             // Find the closest minus number to zero in CollisionDistances
             double closestMinus = collisionDistances.Where(x => x < 0).DefaultIfEmpty(-maxMovement).Max();
-            closestMinus = closestMinus > -step ? 0 : closestMinus+step;
+            closestMinus = closestMinus > -step ? 0 : closestMinus + step;
             // Find the closest plus number to zero in CollisionDistances
             double closestPlus = collisionDistances.Where(x => x > 0).DefaultIfEmpty(maxMovement).Min();
             closestPlus = closestPlus < step ? 0 : closestPlus - step;
+
+            #region message
+            outMessage.Append("\nCollision distances bounds: ");
+            outMessage.Append(closestMinus);
+            outMessage.Append(", ");
+            outMessage.Append(closestPlus);
+            #endregion message
 
             // Filter snapDistances that are inside the range
             HashSet<double> filteredSnapDistances = new HashSet<double>(snapDistances.Where(snapDistance => snapDistance > closestMinus && snapDistance < closestPlus));
@@ -205,8 +225,7 @@ namespace GeneratePlan.Ghc.GhcMovement
             }
 
             // Add filteredSnapDistances as movement vectors to oValidMovements
-            int snap_probability = 3; // if 1, that it is as possible as every movement. Every larger number is multiplication of probability
-            for (int i = 0; i < snap_probability; i++)
+            for (int i = 0; i < snapProbability; i++)
             {
                 foreach (var snapDistance in filteredSnapDistances)
                 {
@@ -242,59 +261,71 @@ namespace GeneratePlan.Ghc.GhcMovement
 
             if (direction != "horizontal" && direction != "vertical") return (null, null, null);
 
+
             foreach (Room room in rooms)
             {
                 foreach (Point3dId corner in room.CornerPoints)
                 {
-                    var adjecentCorners = room.GetAdjacentCornersById(corner);
-                    if (adjecentCorners == null) return (null, null, null);
+                    var adjecentCornersToCorner = room.GetAdjacentCornersById(corner);
+                    if (adjecentCornersToCorner == null) return (null, null, null);
 
                     #region define_direction_sensitive_variables
                     //define locations in each important point in such a way, so the function works for both horizontal and vertical line
                     double cornerPrimaryCoord = direction == "horizontal" ? corner.Point.X : corner.Point.Y;
                     double cornerSecondaryCoord = direction == "horizontal" ? corner.Point.Y : corner.Point.X;
 
-                    double point0PrimaryCoord = direction == "horizontal" ? adjecentCorners[0].Point.X : adjecentCorners[0].Point.Y;
-                    double point0SecondaryCoord = direction == "horizontal" ? adjecentCorners[0].Point.Y : adjecentCorners[0].Point.X;
+                    double pointAdjecent0PrimaryCoord = direction == "horizontal" ? adjecentCornersToCorner[0].Point.X : adjecentCornersToCorner[0].Point.Y;
+                    double pointAdjecent0SecondaryCoord = direction == "horizontal" ? adjecentCornersToCorner[0].Point.Y : adjecentCornersToCorner[0].Point.X;
 
-                    double point1PrimaryCoord = direction == "horizontal" ? adjecentCorners[1].Point.X : adjecentCorners[1].Point.Y;
-                    double point1SecondaryCoord = direction == "horizontal" ? adjecentCorners[1].Point.Y : adjecentCorners[1].Point.X;
+                    double pointAdjecent1PrimaryCoord = direction == "horizontal" ? adjecentCornersToCorner[1].Point.X : adjecentCornersToCorner[1].Point.Y;
+                    double pointAdjecent1SecondaryCoord = direction == "horizontal" ? adjecentCornersToCorner[1].Point.Y : adjecentCornersToCorner[1].Point.X;
 
-                    double minPrimaryCoord = direction == "horizontal" ? min_point.X : min_point.Y;
-                    double maxPrimaryCoord = direction == "horizontal" ? max_point.X : max_point.Y;
+                    double mainMinPrimaryCoord = direction == "horizontal" ? min_point.X : min_point.Y;
+                    double MainMaxPrimaryCoord = direction == "horizontal" ? max_point.X : max_point.Y;
                     double mainSecondaryCoord = direction == "horizontal" ? min_point.Y : min_point.X; // the same for min and max
                     #endregion define_direction_sensitive_variables
 
                     #region collisions
                     double distance = cornerSecondaryCoord - mainSecondaryCoord;
                     //direct collision
-                    if (cornerPrimaryCoord < maxPrimaryCoord && cornerPrimaryCoord > minPrimaryCoord)// if the corner lies between max and min => in a possible collision
+                    if (cornerPrimaryCoord < MainMaxPrimaryCoord && cornerPrimaryCoord > mainMinPrimaryCoord)// if the corner lies between max and min => in a possible collision
                     {
                         directCollisionDistances.Add(distance);
                     }
+
+
                     //indirect collision - the corner and its adjecent line wraps around the moving line
                     //it means that corner and one of its adjecent lines need to be above and below the moving line in the same time
                     else if (
-                        (cornerPrimaryCoord <= minPrimaryCoord && 
-                            (point0PrimaryCoord >= maxPrimaryCoord 
+                        (cornerPrimaryCoord <= mainMinPrimaryCoord && 
+                            (pointAdjecent0PrimaryCoord >= MainMaxPrimaryCoord 
                             || 
-                            point1PrimaryCoord >= maxPrimaryCoord)) 
+                            pointAdjecent1PrimaryCoord >= MainMaxPrimaryCoord)) 
                         ||
-                        (cornerPrimaryCoord >= maxPrimaryCoord && 
-                            (point0PrimaryCoord <= minPrimaryCoord 
+                        (cornerPrimaryCoord >= MainMaxPrimaryCoord && 
+                            (pointAdjecent0PrimaryCoord <= mainMinPrimaryCoord 
                             || 
-                            point1PrimaryCoord <= minPrimaryCoord))
+                            pointAdjecent1PrimaryCoord <= mainMinPrimaryCoord))
                     )
                     {
                         //it also catches itself, so the check to delete the zero distance
                         if(distance != 0) indirectCollisionDistances.Add(distance);
                     }
+
+
                     //snap possition
-                    else if ((Math.Abs(cornerPrimaryCoord - maxPrimaryCoord) < tolerance || Math.Abs(cornerPrimaryCoord - minPrimaryCoord) < tolerance))
+                    else if ((Math.Abs(cornerPrimaryCoord - MainMaxPrimaryCoord) < tolerance || Math.Abs(cornerPrimaryCoord - mainMinPrimaryCoord) < tolerance))
                     {
                         if (distance != 0)
                         {
-                            if (roomsWithBothCorners.Exists(r => r.Id == room.Id)) indirectCollisionDistances.Add(distance);
+                            if (roomsWithBothCorners.Exists(r => r.Id == room.Id) && //if the snap were to occur with itself it is necessarry to check if it wouldn't create ne close region in a room
+                                adjecentCornersToCorner[0].Point.DistanceTo(min_point) > tolerance && //the only situation when it does not appear is when the corner is adjecent to one of the moved points (min and max)
+                                adjecentCornersToCorner[1].Point.DistanceTo(min_point) > tolerance && // so checking if at least one of the adjecent points to corner is not the main point
+                                adjecentCornersToCorner[0].Point.DistanceTo(max_point) > tolerance &&
+                                adjecentCornersToCorner[1].Point.DistanceTo(max_point) > tolerance
+                                ) 
+                                indirectCollisionDistances.Add(distance);
+
                             else snapDistances.Add(distance);
                         }
                     }

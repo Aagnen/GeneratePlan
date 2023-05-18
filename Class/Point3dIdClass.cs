@@ -12,8 +12,8 @@ using Rhino.Collections;
 
 namespace GeneratePlan.Class
 {
-    public class Point3dId //TOLEARN: powinno być structem a nie klasą, ale za dużo błędów przy poprawianiu
-        //NOTES: Struct =/= class. Struct powinien być mala, niereferencyjna jednostka
+    public class Point3dId //TOLEARN: powinno być structem a nie klasą
+        //NOTES: Struct - mala, niereferencyjna jednostka
     {
         //------------------------------------------properties------------------------------------//
         public Point3d Point { get; set; }

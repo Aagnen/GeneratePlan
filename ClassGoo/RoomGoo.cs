@@ -80,7 +80,15 @@ namespace GeneratePlan.ClassGoo
 
         public override BoundingBox Boundingbox => throw new NotImplementedException(); //TODO2: boundingbox
 
-        public BoundingBox ClippingBox => throw new NotImplementedException(); //TODO2: clippingbox
+        public BoundingBox ClippingBox
+        {
+            get
+            {
+                Point3d minPoint = new Point3d(this.Value.CornerPoints[0].Point.X - 0.001, this.Value.CornerPoints[0].Point.Y - 0.001, this.Value.CornerPoints[0].Point.Z - 0.001);
+                Point3d maxPoint = new Point3d(this.Value.CornerPoints[3].Point.X + 0.001, this.Value.CornerPoints[3].Point.Y + 0.001, this.Value.CornerPoints[3].Point.Z + 0.001);
+                return new BoundingBox(minPoint, maxPoint);
+            }
+        }//TODO2: clippingbox
 
         public override BoundingBox GetBoundingBox(Transform xform) => throw new NotImplementedException(); //TODO2: boundingbox
 
@@ -120,7 +128,7 @@ namespace GeneratePlan.ClassGoo
 
         public void DrawViewportMeshes(GH_PreviewMeshArgs args)
         {
-            throw new NotImplementedException();
+            if (Value == null) { return; }; //TODO3: Room mesh vis
         }
         #endregion PreviewMethods
     }

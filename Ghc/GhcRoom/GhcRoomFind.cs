@@ -8,6 +8,7 @@ using System.Linq;
 using GeneratePlan.Class;
 using GeneratePlan.ClassParam;
 using GeneratePlan.ClassGoo;
+using GH_IO.Serialization;
 
 namespace GeneratePlan.Ghc.GhcRoom
 {
@@ -22,8 +23,8 @@ namespace GeneratePlan.Ghc.GhcRoom
         protected override void RegisterInputParams(GH_InputParamManager pManager)
         {
             pManager.AddParameter(new RoomParam(), "List of Rooms", "R", "List of Rooms", GH_ParamAccess.list);
-            pManager.AddIntegerParameter("Room Id", "Id", "The Room Id to extract", GH_ParamAccess.item, -1);
-            pManager.AddTextParameter("Room Function", "F", "The Room Function to extract", GH_ParamAccess.item, "");
+            pManager.AddIntegerParameter("Room Id", "Id", "The Room Id to extract", GH_ParamAccess.list, -1);
+            pManager.AddTextParameter("Room Function", "F", "The Room Function to extract", GH_ParamAccess.list, "");
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -35,31 +36,46 @@ namespace GeneratePlan.Ghc.GhcRoom
         protected override void SolveInstance(IGH_DataAccess DA)
         {
             List<Room> iRooms = new List<Room>();
-            List<Room> rooms = new List<Room>();
-            int roomId = -1;
-            string roomFunction = "";
+            HashSet<Room> rooms = new HashSet<Room>();
+            List<int> roomId = new List<int>();
+            List<string> roomFunction = new List<string>();
 
             if (!DA.GetDataList(0, iRooms)) return;
-            DA.GetData(1, ref roomId);
-            DA.GetData(2, ref roomFunction);
+            DA.GetDataList(1, roomId);
+            DA.GetDataList(2, roomFunction);
 
-            for(int i=0; i<iRooms.Count; i++) //deep copy just in case
+            for (int i = 0; i < iRooms.Count; i++) //deep copy just in case
             {
                 rooms.Add(iRooms[i].Duplicate());
             }
 
-            List<Room> extractedRooms = new List<Room>();
-            List<Room> restOfRooms = new List<Room>();
+            HashSet<Room> extractedRooms = new HashSet<Room>();
+            HashSet<Room> restOfRooms = new HashSet<Room>(rooms); // Initialize restOfRooms with all rooms
 
-            if (roomId != -1)
+            if (roomId.Count > 0)
             {
-                extractedRooms = rooms.Where(room => room.Id == roomId).ToList();
-                restOfRooms = rooms.Where(room => room.Id != roomId).ToList();
+                foreach (var id in roomId)
+                {
+                    var roomsWithId = rooms.Where(room => room.Id == id);
+                    foreach (var room in roomsWithId)
+                    {
+                        extractedRooms.Add(room);
+                        restOfRooms.Remove(room);
+                    }
+                }
             }
-            else if (!string.IsNullOrEmpty(roomFunction))
+
+            if (roomFunction.Count > 0)
             {
-                extractedRooms = rooms.Where(room => room.Function == roomFunction).ToList();
-                restOfRooms = rooms.Where(room => room.Function != roomFunction).ToList();
+                foreach (var function in roomFunction)
+                {
+                    var roomsWithFunction = rooms.Where(room => room.Function == function);
+                    foreach (var room in roomsWithFunction)
+                    {
+                        extractedRooms.Add(room);
+                        restOfRooms.Remove(room);
+                    }
+                }
             }
 
             DA.SetDataList(0, extractedRooms);
