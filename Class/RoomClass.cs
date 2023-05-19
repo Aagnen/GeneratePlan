@@ -20,7 +20,7 @@ namespace GeneratePlan.Class
         public string Function { get; set; }
         public double Area { get; private set; }
         public double AspectRatio { get; private set; }
-        public Dictionary<int, Room> AdjacentRooms { get; private set; }
+        public Dictionary<int, Room> AdjacentRooms { get; private set; } = new Dictionary<int, Room>();
 
 
         //---------------------------------CONSTRUCTORS--------------------------------//
@@ -176,7 +176,7 @@ namespace GeneratePlan.Class
 
         /// <summary>
         /// updates corners. If there already is a corner with this Id -> it will be exchanged. 
-        /// If there is none with this Id -> it will be added in the adequate place.
+        /// If there is none with this Id -> it will be added.
         /// If there is no new corner with the Id of an old one, the old one stays unchanged. 
         /// Upadates area and aspect ratio.
         /// Returns true if success, false if there is something wrong - for example duplicates of Point3dId.Id
@@ -222,11 +222,11 @@ namespace GeneratePlan.Class
 
 
         /// <summary>
-            /// updates corners. If there already is a corner with this Id -> it will be exchanged. 
-            /// If there is none with this Id -> IGNORED.
-            /// If there is no new corner with the Id of an old one, the old one stays unchanged. 
-            /// Upadates area and aspect ratio.
-            /// Returns true if success, false if there is something wrong - for example duplicates of Point3dId.Id
+        /// updates corners. If there already is a corner with this Id -> it will be exchanged. 
+        /// If there is none with this Id -> IGNORED.
+        /// If there is no new corner with the Id of an old one, the old one stays unchanged. 
+        /// Upadates area and aspect ratio.
+        /// Returns true if success, false if there is something wrong - for example duplicates of Point3dId.Id
         /// </summary>
         public bool UpdateCornersByID(List<Point3dId> newCorners)
         {
@@ -367,10 +367,29 @@ namespace GeneratePlan.Class
                 // Compute the aspect ratio of the room
                 AspectRatio = ComputeAspectRatio(CornerPoints);
             }
-        public void UpdateAdjacentRooms(Dictionary<int, Room> allRooms)
-    {
-        // implementation to update the AdjacentRooms dictionary based on the CornerPoints and other rooms
-    }
+        public void UpdateAdjacentRooms(HashSet<Room> allRooms)
+        {
+            // Clear the existing adjacent rooms before the update
+            this.AdjacentRooms.Clear();
+
+            // Iterate through all rooms
+            foreach (var room in allRooms)
+            {
+                // Skip the current room
+                if (room == this) continue;
+
+                // Check for shared corners
+                var sharedCorners = this.CornerPoints.Intersect(room.CornerPoints).ToList();
+
+                // If there are at least 2 shared corners, add the room as adjacent
+                double minimal_door_size = 1;
+                if (sharedCorners.Count < 2) return;
+                else if(sharedCorners[0].Point.DistanceTo(sharedCorners[1].Point) >= minimal_door_size)
+                {
+                    this.AdjacentRooms[room.Id] = room;
+                }
+            }
+        }
 
         //---------------------------------OTHER METHODS--------------------------------//
 
