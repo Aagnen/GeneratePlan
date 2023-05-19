@@ -8,6 +8,7 @@ using GeneratePlan.Class;
 using GeneratePlan.ClassParam;
 using GeneratePlan.ClassGoo;
 using System.Text;
+using Rhino.Geometry.Intersect;
 
 namespace GeneratePlan.Ghc.GhcMovement
 {
@@ -23,9 +24,11 @@ namespace GeneratePlan.Ghc.GhcMovement
         {
             pManager.AddParameter(new RoomParam(), "Rooms", "R", "List of all iRooms in the program", GH_ParamAccess.list);
             pManager.AddParameter(new Point3dIdParam(), "LineEndpoints", "LE", "List of two Point3dIds that are the endpoints of the line that needs moving", GH_ParamAccess.list);
-            pManager.AddNumberParameter("Maximal movement", "Max", "Maximal distance movement. Multiplication of step!", GH_ParamAccess.item);
+            pManager.AddCurveParameter("Movement boundary", "Boundary", "Boundary suggesting maximal movement", GH_ParamAccess.item);
+            pManager[2].Optional = true;
             pManager.AddNumberParameter("Step", "St", "Movement step", GH_ParamAccess.item);
             pManager.AddIntegerParameter("Snap probability", "Snap", "Snap probability if snap is possible. 1 = the same as normal move3=3 times mor probable", GH_ParamAccess.item);
+            pManager[4].Optional = true;
         }
 
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
@@ -40,10 +43,9 @@ namespace GeneratePlan.Ghc.GhcMovement
             //------------------------------------------------------ initialize variables --------------------------------------------------//
             List<Room> iRooms = new List<Room>();
             List<Point3dId> iLineEndpoints = new List<Point3dId>();
-            double maxMovement = double.MaxValue;
             double step = double.MaxValue;
             int snapProbability = 1;
-
+            Curve iBoundary = null;
             StringBuilder outMessage = new StringBuilder();
             double tolerance = 0.00001;
 
@@ -53,8 +55,8 @@ namespace GeneratePlan.Ghc.GhcMovement
 
             //------------------------------------------------------ get variables --------------------------------------------------//
             if (!DA.GetDataList("Rooms", iRooms) || !DA.GetDataList("LineEndpoints", iLineEndpoints)) return;
-            if (!DA.GetData("Maximal movement", ref maxMovement)) return;
             if (!DA.GetData("Step", ref step)) return;
+            DA.GetData("Movement boundary", ref iBoundary);
             DA.GetData("Snap probability", ref snapProbability);
 
             //------------------------------------------------------ common bugs --------------------------------------------------//
@@ -72,7 +74,7 @@ namespace GeneratePlan.Ghc.GhcMovement
 
             if (snapProbability < 0)
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Snap has to be a positive number");
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Snap probability has to be a positive number");
                 return;
             }
 
@@ -120,9 +122,21 @@ namespace GeneratePlan.Ghc.GhcMovement
                     min_point = lineEndpoints[0].Point;
                 }
 
+                Vector3d movementDirection = Vector3d.XAxis;
+                (double positiveDistanceMinPoint, double negativeDistanceMinPoint) = FindDistanceToBoundary(min_point, movementDirection, iBoundary);
+                (double positiveDistanceMaxPoint, double negativeDistanceMaxPoint) = FindDistanceToBoundary(max_point, movementDirection, iBoundary);
+                double smallerPositiveDistance = positiveDistanceMinPoint < positiveDistanceMaxPoint ? positiveDistanceMinPoint : positiveDistanceMaxPoint;
+                double smallerNegativeDistance = negativeDistanceMinPoint < negativeDistanceMaxPoint ? negativeDistanceMinPoint : negativeDistanceMaxPoint;
+
+                outMessage.Append("Boundary collisions at: ");
+                outMessage.Append(smallerPositiveDistance);
+                outMessage.Append(", -");
+                outMessage.Append(smallerNegativeDistance);
+
                 //all possible movements
-                int numberOfSteps = (int)Math.Floor(maxMovement / step);
-                for (int i = -numberOfSteps; i <= numberOfSteps; i++)
+                int numberOfStepsNegative = (int)Math.Floor(smallerNegativeDistance / step);
+                int numberOfStepsPositive = (int)Math.Floor(smallerPositiveDistance / step);
+                for (int i = -numberOfStepsNegative; i <= numberOfStepsPositive; i++)
                 {
                     double x = i * step;
                     if (x != 0) possibleMovements.Add(new Vector3d(x, 0, 0));
@@ -142,9 +156,21 @@ namespace GeneratePlan.Ghc.GhcMovement
                     min_point = lineEndpoints[0].Point;
                 }
 
+                Vector3d movementDirection = Vector3d.YAxis;
+                (double positiveDistanceMinPoint, double negativeDistanceMinPoint) = FindDistanceToBoundary(min_point, movementDirection, iBoundary);
+                (double positiveDistanceMaxPoint, double negativeDistanceMaxPoint) = FindDistanceToBoundary(max_point, movementDirection, iBoundary);
+                double smallerPositiveDistance = positiveDistanceMinPoint < positiveDistanceMaxPoint ? positiveDistanceMinPoint : positiveDistanceMaxPoint;
+                double smallerNegativeDistance = negativeDistanceMinPoint < negativeDistanceMaxPoint ? negativeDistanceMinPoint : negativeDistanceMaxPoint;
+
+                outMessage.Append("Boundary collisions at: ");
+                outMessage.Append(smallerPositiveDistance);
+                outMessage.Append(", -");
+                outMessage.Append(smallerNegativeDistance);
+
                 //all possible movements
-                int numberOfSteps = (int)Math.Floor(maxMovement / step);
-                for (int i = -numberOfSteps; i <= numberOfSteps; i++)
+                int numberOfStepsNegative = (int)Math.Floor(smallerNegativeDistance / step);
+                int numberOfStepsPositive = (int)Math.Floor(smallerPositiveDistance / step);
+                for (int i = -numberOfStepsNegative; i <= numberOfStepsPositive; i++)
                 {
                     double y = i * step;
                     if(y!= 0) possibleMovements.Add(new Vector3d(0, y, 0));
@@ -193,10 +219,10 @@ namespace GeneratePlan.Ghc.GhcMovement
             collisionDistances.UnionWith(indirectCollistionDistances);
 
             // Find the closest minus number to zero in CollisionDistances
-            double closestMinus = collisionDistances.Where(x => x < 0).DefaultIfEmpty(-maxMovement).Max();
+            double closestMinus = collisionDistances.Where(x => x < 0).DefaultIfEmpty(double.MinValue).Max();
             closestMinus = closestMinus > -step ? 0 : closestMinus + step;
             // Find the closest plus number to zero in CollisionDistances
-            double closestPlus = collisionDistances.Where(x => x > 0).DefaultIfEmpty(maxMovement).Min();
+            double closestPlus = collisionDistances.Where(x => x > 0).DefaultIfEmpty(double.MaxValue).Min();
             closestPlus = closestPlus < step ? 0 : closestPlus - step;
 
             #region message
@@ -252,6 +278,49 @@ namespace GeneratePlan.Ghc.GhcMovement
             #endregion out
         }
 
+        private (double PositiveDistance, double NegativeDistance) FindDistanceToBoundary(Point3d mainPoint, Vector3d mainDirection, Curve boundary)
+        {
+            double plusDistance = 50;
+            double minusDistance = 50;
+
+            if (boundary == null) return (plusDistance, minusDistance);
+
+            Line lineToIntersect = new Line(mainPoint, mainDirection);
+            var intersections = Rhino.Geometry.Intersect.Intersection.CurveLine(boundary, lineToIntersect, 0.001, 0.001);
+
+            if (intersections == null || intersections.Count == 0) return (plusDistance, minusDistance);
+
+            List<double> positiveDistances = new List<double>();
+            List<double> negativeDistances = new List<double>();
+
+            foreach (var intersection in intersections)
+            {
+                Vector3d intersectionDirection = intersection.PointA - mainPoint;
+                double dotProduct = intersectionDirection * mainDirection;
+
+                if (dotProduct >= 0)
+                {
+                    positiveDistances.Add(intersectionDirection.Length);
+                }
+                else
+                {
+                    negativeDistances.Add(intersectionDirection.Length);
+                }
+            }
+
+            if (positiveDistances.Count > 0)
+            {
+                plusDistance = positiveDistances.Min();
+            }
+            if (negativeDistances.Count > 0)
+            {
+                minusDistance = negativeDistances.Min();
+            }
+
+            return (plusDistance, minusDistance);
+        }
+
+
         private (HashSet<double> directCollisionDistances, HashSet<double> indirectCollisionDistances, HashSet<double> snapDistances) FindCollisionAndSnapLocations(string direction, Point3d min_point, Point3d max_point, List<Room> rooms, List<Room> roomsWithBothCorners, double tolerance)
         {
             // HashSet to store collision locations referencing Y or X values of the Point3d (depending if line is vertical or horizontal)
@@ -270,7 +339,7 @@ namespace GeneratePlan.Ghc.GhcMovement
                     if (adjecentCornersToCorner == null) return (null, null, null);
 
                     #region define_direction_sensitive_variables
-                    //define locations in each important point in such a way, so the function works for both horizontal and vertical line
+                    //define locations in each important mainPoint in such a way, so the function works for both horizontal and vertical line
                     double cornerPrimaryCoord = direction == "horizontal" ? corner.Point.X : corner.Point.Y;
                     double cornerSecondaryCoord = direction == "horizontal" ? corner.Point.Y : corner.Point.X;
 
@@ -320,7 +389,7 @@ namespace GeneratePlan.Ghc.GhcMovement
                         {
                             if (roomsWithBothCorners.Exists(r => r.Id == room.Id) && //if the snap were to occur with itself it is necessarry to check if it wouldn't create ne close region in a room
                                 adjecentCornersToCorner[0].Point.DistanceTo(min_point) > tolerance && //the only situation when it does not appear is when the corner is adjecent to one of the moved points (min and max)
-                                adjecentCornersToCorner[1].Point.DistanceTo(min_point) > tolerance && // so checking if at least one of the adjecent points to corner is not the main point
+                                adjecentCornersToCorner[1].Point.DistanceTo(min_point) > tolerance && // so checking if at least one of the adjecent points to corner is not the main mainPoint
                                 adjecentCornersToCorner[0].Point.DistanceTo(max_point) > tolerance &&
                                 adjecentCornersToCorner[1].Point.DistanceTo(max_point) > tolerance
                                 ) 
@@ -330,7 +399,7 @@ namespace GeneratePlan.Ghc.GhcMovement
                         }
                     }
 
-                    //in other cases the point lies away from the moving line thus is not added to any list
+                    //in other cases the mainPoint lies away from the moving line thus is not added to any list
                     #endregion collisions
                 }
             }
